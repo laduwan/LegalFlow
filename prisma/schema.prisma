@@ -1,0 +1,943 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ORGANIZATION & AUTH
+// ============================================================
+
+model Organization {
+  id              String   @id @default(cuid())
+  name            String
+  slug            String   @unique
+  plan            String   @default("standard")
+  billingEmail    String?
+  trustAccountState String?
+  phone           String?
+  address         String?
+  website         String?
+  logoUrl         String?
+  timezone        String   @default("America/New_York")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  users           User[]
+  contacts        Contact[]
+  matters         Matter[]
+  timeEntries     TimeEntry[]
+  trustAccounts   TrustAccount[]
+  documents       Document[]
+  events          Event[]
+  invoices        Invoice[]
+  detainees       Detainee[]
+  facilities      Facility[]
+  auditLogs       AuditLog[]
+  aiAuditLogs     AIAuditLog[]
+  intakeForms     IntakeForm[]
+  templates       DocumentTemplate[]
+
+  @@map("organizations")
+}
+
+enum UserRole {
+  ADMIN
+  ATTORNEY
+  PARALEGAL
+  LEGAL_ASSISTANT
+  READ_ONLY
+}
+
+model User {
+  id              String   @id @default(cuid())
+  organizationId  String
+  email           String   @unique
+  passwordHash    String
+  role            UserRole @default(PARALEGAL)
+  firstName       String
+  lastName        String
+  barNumber       String?
+  hourlyRate      Float?
+  phone           String?
+  avatarUrl       String?
+  twoFactorEnabled Boolean @default(false)
+  twoFactorSecret String?
+  emailVerified   DateTime?
+  isActive        Boolean  @default(true)
+  lastLoginAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  assignedMatters MatterAssignment[]
+  timeEntries     TimeEntry[]
+  documents       Document[]
+  eventsCreated   Event[]        @relation("EventCreator")
+  trustApprovals  TrustTransaction[] @relation("TrustApprover")
+  auditLogs       AuditLog[]
+  aiAuditLogs     AIAuditLog[]
+  sessions        Session[]
+  notifications   Notification[]
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  token        String   @unique
+  expiresAt    DateTime
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ============================================================
+// CONTACTS / CRM
+// ============================================================
+
+enum ContactType {
+  CLIENT
+  OPPOSING_PARTY
+  WITNESS
+  EXPERT
+  COURT
+  MEDICAL_PROVIDER
+  INSURANCE
+  GOVERNMENT_AGENCY
+  OTHER
+}
+
+model Contact {
+  id              String      @id @default(cuid())
+  organizationId  String
+  type            ContactType @default(CLIENT)
+  isOrganization  Boolean     @default(false)
+
+  firstName       String?
+  middleName      String?
+  lastName        String?
+  suffix          String?
+  preferredName   String?
+  companyName     String?
+
+  email           String?
+  phone           String?
+  altPhone        String?
+  fax             String?
+
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  state           String?
+  zipCode         String?
+  country         String?    @default("US")
+
+  language        String?    @default("en")
+  communicationPreference String? @default("email")
+
+  // Immigration-specific fields
+  aNumber         String?
+  dateOfBirth     DateTime?
+  countryOfBirth  String?
+  countryOfCitizenship String?
+  currentImmigrationStatus String?
+  entryDate       DateTime?
+  visaExpirationDate DateTime?
+  workAuthExpiration DateTime?
+  passportNumber  String?
+  passportExpiration DateTime?
+
+  // Personal Injury fields
+  incidentDate    DateTime?
+  incidentType    String?
+  insuranceCompany String?
+  insurancePolicyNumber String?
+  insuranceAdjuster String?
+  insurancePhone  String?
+
+  // Portal access
+  portalEnabled   Boolean    @default(false)
+  portalEmail     String?
+  portalPasswordHash String?
+
+  notes           String?
+  customFields    Json?
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  matterContacts  MatterContact[]
+  documents       Document[]
+  detainee        Detainee?
+  trustLedgers    TrustLedger[]
+  medicalTreatments MedicalTreatment[]
+  liens           Lien[]
+  invoices        Invoice[]
+
+  @@index([organizationId])
+  @@index([organizationId, type])
+  @@index([aNumber])
+  @@map("contacts")
+}
+
+// ============================================================
+// MATTERS / CASES
+// ============================================================
+
+enum MatterType {
+  IMMIGRATION
+  CRIMINAL
+  PERSONAL_INJURY
+  GENERAL
+}
+
+enum MatterStatus {
+  INTAKE
+  ACTIVE
+  PENDING
+  ON_HOLD
+  CLOSED
+  ARCHIVED
+}
+
+enum BillingType {
+  HOURLY
+  FLAT_FEE
+  CONTINGENCY
+  HYBRID
+  PRO_BONO
+}
+
+model Matter {
+  id              String       @id @default(cuid())
+  organizationId  String
+  matterNumber    String
+  type            MatterType   @default(IMMIGRATION)
+  status          MatterStatus @default(INTAKE)
+  practiceArea    String?
+  title           String
+  description     String?
+
+  primaryClientId String?
+  opposingPartyId String?
+
+  openDate        DateTime     @default(now())
+  closeDate       DateTime?
+  solDate         DateTime?
+
+  billingType     BillingType  @default(HOURLY)
+  billingRate     Float?
+  flatFeeAmount   Float?
+  contingencyPct  Float?
+
+  // Immigration-specific
+  immigrationCaseType String?
+  uscisReceiptNumber  String?
+  priorityDate    DateTime?
+  immigrationCourt String?
+
+  // Criminal-specific
+  criminalCaseStage String?
+  chargeDescription String?
+  courtName       String?
+  judgeName        String?
+  nextHearingDate DateTime?
+
+  // PI-specific
+  incidentDate    DateTime?
+  injuryType      String?
+  demandAmount    Float?
+  settlementAmount Float?
+
+  tags            String[]
+  customFields    Json?
+
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  matterContacts  MatterContact[]
+  assignments     MatterAssignment[]
+  timeEntries     TimeEntry[]
+  documents       Document[]
+  events          Event[]
+  trustLedgers    TrustLedger[]
+  invoices        Invoice[]
+  tasks           Task[]
+  notes           MatterNote[]
+  detainees       Detainee[]
+  medicalTreatments MedicalTreatment[]
+  liens           Lien[]
+  immigrationForms ImmigrationForm[]
+  relatedFrom     RelatedMatter[] @relation("MatterFrom")
+  relatedTo       RelatedMatter[] @relation("MatterTo")
+
+  @@unique([organizationId, matterNumber])
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, type])
+  @@index([uscisReceiptNumber])
+  @@map("matters")
+}
+
+model MatterContact {
+  id        String @id @default(cuid())
+  matterId  String
+  contactId String
+  role      String
+
+  matter    Matter  @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  contact   Contact @relation(fields: [contactId], references: [id])
+
+  @@unique([matterId, contactId, role])
+  @@map("matter_contacts")
+}
+
+model MatterAssignment {
+  id       String @id @default(cuid())
+  matterId String
+  userId   String
+  role     String @default("attorney")
+
+  matter   Matter @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  user     User   @relation(fields: [userId], references: [id])
+
+  @@unique([matterId, userId])
+  @@map("matter_assignments")
+}
+
+model RelatedMatter {
+  id           String @id @default(cuid())
+  matterFromId String
+  matterToId   String
+  relationship String
+
+  matterFrom   Matter @relation("MatterFrom", fields: [matterFromId], references: [id])
+  matterTo     Matter @relation("MatterTo", fields: [matterToId], references: [id])
+
+  @@unique([matterFromId, matterToId])
+  @@map("related_matters")
+}
+
+model MatterNote {
+  id        String   @id @default(cuid())
+  matterId  String
+  authorId  String
+  content   String
+  isPinned  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  matter    Matter   @relation(fields: [matterId], references: [id], onDelete: Cascade)
+
+  @@index([matterId])
+  @@map("matter_notes")
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  matterId    String?
+  assigneeId  String?
+  title       String
+  description String?
+  dueDate     DateTime?
+  priority    String    @default("medium")
+  status      String    @default("pending")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  matter      Matter?   @relation(fields: [matterId], references: [id])
+
+  @@index([matterId])
+  @@index([assigneeId])
+  @@map("tasks")
+}
+
+// ============================================================
+// TIME TRACKING & BILLING
+// ============================================================
+
+enum TimeEntryStatus {
+  DRAFT
+  APPROVED
+  BILLED
+  WRITTEN_OFF
+}
+
+model TimeEntry {
+  id              String          @id @default(cuid())
+  organizationId  String
+  matterId        String
+  userId          String
+  date            DateTime
+  durationMinutes Int
+  activityType    String
+  description     String
+  billable        Boolean         @default(true)
+  rate            Float?
+  status          TimeEntryStatus @default(DRAFT)
+  invoiceId       String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  organization    Organization    @relation(fields: [organizationId], references: [id])
+  matter          Matter          @relation(fields: [matterId], references: [id])
+  user            User            @relation(fields: [userId], references: [id])
+  invoice         Invoice?        @relation(fields: [invoiceId], references: [id])
+
+  @@index([organizationId])
+  @@index([matterId])
+  @@index([userId])
+  @@map("time_entries")
+}
+
+model Expense {
+  id              String   @id @default(cuid())
+  matterId        String
+  expenseType     String
+  description     String
+  amount          Float
+  date            DateTime
+  billable        Boolean  @default(true)
+  receiptUrl      String?
+  reimbursed      Boolean  @default(false)
+  invoiceId       String?
+  createdAt       DateTime @default(now())
+
+  invoice         Invoice? @relation(fields: [invoiceId], references: [id])
+
+  @@index([matterId])
+  @@map("expenses")
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  VIEWED
+  PAID
+  PARTIAL
+  OVERDUE
+  VOID
+}
+
+model Invoice {
+  id              String        @id @default(cuid())
+  organizationId  String
+  matterId        String
+  contactId       String
+  invoiceNumber   String
+  status          InvoiceStatus @default(DRAFT)
+  issueDate       DateTime      @default(now())
+  dueDate         DateTime
+  subtotal        Float         @default(0)
+  tax             Float         @default(0)
+  total           Float         @default(0)
+  amountPaid      Float         @default(0)
+  notes           String?
+  paymentTerms    String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  organization    Organization  @relation(fields: [organizationId], references: [id])
+  matter          Matter        @relation(fields: [matterId], references: [id])
+  contact         Contact       @relation(fields: [contactId], references: [id])
+  timeEntries     TimeEntry[]
+  expenses        Expense[]
+  payments        Payment[]
+
+  @@unique([organizationId, invoiceNumber])
+  @@index([organizationId])
+  @@map("invoices")
+}
+
+model Payment {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  amount      Float
+  method      String
+  reference   String?
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id])
+
+  @@map("payments")
+}
+
+// ============================================================
+// IOLTA TRUST ACCOUNTING
+// ============================================================
+
+enum TrustAccountType {
+  IOLTA
+  INDIVIDUAL_CLIENT_TRUST
+  OPERATING
+}
+
+model TrustAccount {
+  id                    String           @id @default(cuid())
+  organizationId        String
+  name                  String
+  bankName              String
+  accountNumberEncrypted String
+  accountType           TrustAccountType @default(IOLTA)
+  state                 String
+  balance               Float            @default(0)
+  isActive              Boolean          @default(true)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  organization          Organization     @relation(fields: [organizationId], references: [id])
+  ledgers               TrustLedger[]
+  transactions          TrustTransaction[]
+  reconciliations       TrustReconciliation[]
+
+  @@index([organizationId])
+  @@map("trust_accounts")
+}
+
+model TrustLedger {
+  id              String   @id @default(cuid())
+  trustAccountId  String
+  matterId        String
+  contactId       String
+  balance         Float    @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  trustAccount    TrustAccount     @relation(fields: [trustAccountId], references: [id])
+  matter          Matter           @relation(fields: [matterId], references: [id])
+  contact         Contact          @relation(fields: [contactId], references: [id])
+  transactions    TrustTransaction[]
+
+  @@unique([trustAccountId, matterId, contactId])
+  @@map("trust_ledgers")
+}
+
+enum TrustTransactionType {
+  DEPOSIT
+  DISBURSEMENT_CLIENT
+  DISBURSEMENT_FIRM
+  DISBURSEMENT_THIRD_PARTY
+  TRANSFER
+  BANK_FEE
+  INTEREST
+}
+
+model TrustTransaction {
+  id              String               @id @default(cuid())
+  trustAccountId  String
+  trustLedgerId   String
+  type            TrustTransactionType
+  amount          Float
+  description     String
+  referenceNumber String?
+  payee           String?
+  approvedById    String?
+  approvedAt      DateTime?
+  createdAt       DateTime             @default(now())
+
+  trustAccount    TrustAccount @relation(fields: [trustAccountId], references: [id])
+  trustLedger     TrustLedger  @relation(fields: [trustLedgerId], references: [id])
+  approvedBy      User?        @relation("TrustApprover", fields: [approvedById], references: [id])
+
+  @@index([trustAccountId])
+  @@index([trustLedgerId])
+  @@map("trust_transactions")
+}
+
+model TrustReconciliation {
+  id              String   @id @default(cuid())
+  trustAccountId  String
+  reconcileDate   DateTime
+  bankBalance     Float
+  ledgerBalance   Float
+  clientTotal     Float
+  isReconciled    Boolean  @default(false)
+  discrepancy     Float    @default(0)
+  notes           String?
+  reconciledById  String?
+  createdAt       DateTime @default(now())
+
+  trustAccount    TrustAccount @relation(fields: [trustAccountId], references: [id])
+
+  @@index([trustAccountId])
+  @@map("trust_reconciliations")
+}
+
+// ============================================================
+// DOCUMENTS
+// ============================================================
+
+model Document {
+  id              String   @id @default(cuid())
+  organizationId  String
+  matterId        String?
+  contactId       String?
+  filename        String
+  originalFilename String
+  filePath        String
+  fileSize        Int
+  mimeType        String
+  documentType    String
+  version         Int      @default(1)
+  description     String?
+  tags            String[]
+  isClientVisible Boolean  @default(false)
+  uploadedById    String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  matter          Matter?      @relation(fields: [matterId], references: [id])
+  contact         Contact?     @relation(fields: [contactId], references: [id])
+  uploadedBy      User         @relation(fields: [uploadedById], references: [id])
+
+  @@index([organizationId])
+  @@index([matterId])
+  @@map("documents")
+}
+
+model DocumentTemplate {
+  id              String   @id @default(cuid())
+  organizationId  String
+  name            String
+  category        String
+  content         String
+  practiceArea    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@map("document_templates")
+}
+
+// ============================================================
+// CALENDAR & EVENTS
+// ============================================================
+
+enum EventType {
+  COURT_HEARING
+  CLIENT_MEETING
+  DEADLINE
+  TASK_DUE
+  DEPOSITION
+  FILING_DEADLINE
+  SOL_DEADLINE
+  VISA_EXPIRATION
+  WORK_AUTH_EXPIRATION
+  CONSULTATION
+  INTERNAL_MEETING
+  OTHER
+}
+
+model Event {
+  id              String    @id @default(cuid())
+  organizationId  String
+  matterId        String?
+  title           String
+  type            EventType @default(OTHER)
+  startDatetime   DateTime
+  endDatetime     DateTime?
+  allDay          Boolean   @default(false)
+  location        String?
+  description     String?
+  reminderDays    Int[]     @default([1, 7])
+  recurrence      String?
+  createdById     String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  matter          Matter?      @relation(fields: [matterId], references: [id])
+  createdBy       User         @relation("EventCreator", fields: [createdById], references: [id])
+
+  @@index([organizationId])
+  @@index([matterId])
+  @@index([startDatetime])
+  @@map("events")
+}
+
+// ============================================================
+// IMMIGRATION MODULE
+// ============================================================
+
+enum ImmigrationFormStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  READY_FOR_REVIEW
+  APPROVED
+  FILED
+  RECEIVED
+  RFE_ISSUED
+  RFE_RESPONDED
+  APPROVED_BY_USCIS
+  DENIED
+}
+
+model ImmigrationForm {
+  id              String                @id @default(cuid())
+  matterId        String
+  formType        String
+  formVersion     String?
+  status          ImmigrationFormStatus @default(NOT_STARTED)
+  receiptNumber   String?
+  filedDate       DateTime?
+  receivedDate    DateTime?
+  approvedDate    DateTime?
+  deniedDate      DateTime?
+  rfeDate         DateTime?
+  rfeResponseDeadline DateTime?
+  formData        Json?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  notes           String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  matter          Matter                @relation(fields: [matterId], references: [id])
+
+  @@index([matterId])
+  @@index([receiptNumber])
+  @@map("immigration_forms")
+}
+
+model Detainee {
+  id              String   @id @default(cuid())
+  organizationId  String
+  contactId       String   @unique
+  matterId        String?
+  aNumber         String?
+  bookingNumber   String?
+  currentFacilityId String?
+  legalStatus     String?
+  bondAmount      Float?
+  bondStatus      String?
+  bondConditions  String?
+  nextHearingDate DateTime?
+  releaseDate     DateTime?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  contact         Contact      @relation(fields: [contactId], references: [id])
+  matter          Matter?      @relation(fields: [matterId], references: [id])
+  facility        Facility?    @relation(fields: [currentFacilityId], references: [id])
+  communications  DetaineeCommunication[]
+  transfers       DetaineeTransfer[]
+
+  @@index([organizationId])
+  @@index([aNumber])
+  @@map("detainees")
+}
+
+model Facility {
+  id              String   @id @default(cuid())
+  organizationId  String?
+  name            String
+  type            String
+  addressLine1    String?
+  city            String?
+  state           String?
+  zipCode         String?
+  phone           String?
+  fax             String?
+  iceFieldOffice  String?
+  visitationHours String?
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  organization    Organization? @relation(fields: [organizationId], references: [id])
+  detainees       Detainee[]
+
+  @@map("facilities")
+}
+
+model DetaineeTransfer {
+  id              String   @id @default(cuid())
+  detaineeId      String
+  fromFacilityId  String?
+  toFacilityId    String?
+  transferDate    DateTime
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  detainee        Detainee @relation(fields: [detaineeId], references: [id])
+
+  @@index([detaineeId])
+  @@map("detainee_transfers")
+}
+
+model DetaineeCommunication {
+  id              String   @id @default(cuid())
+  detaineeId      String
+  type            String
+  date            DateTime
+  summary         String
+  contactedBy     String?
+  createdAt       DateTime @default(now())
+
+  detainee        Detainee @relation(fields: [detaineeId], references: [id])
+
+  @@index([detaineeId])
+  @@map("detainee_communications")
+}
+
+// ============================================================
+// PERSONAL INJURY MODULE
+// ============================================================
+
+model MedicalTreatment {
+  id              String   @id @default(cuid())
+  matterId        String
+  providerId      String?
+  treatmentDate   DateTime
+  type            String
+  diagnosis       String?
+  billAmount      Float?
+  paidAmount      Float?
+  recordStatus    String   @default("pending")
+  recordRequestDate DateTime?
+  recordReceivedDate DateTime?
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  matter          Matter   @relation(fields: [matterId], references: [id])
+  provider        Contact? @relation(fields: [providerId], references: [id])
+
+  @@index([matterId])
+  @@map("medical_treatments")
+}
+
+model Lien {
+  id              String   @id @default(cuid())
+  matterId        String
+  lienHolderId    String?
+  type            String
+  assertedAmount  Float
+  negotiatedAmount Float?
+  finalAmount     Float?
+  status          String   @default("active")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  matter          Matter   @relation(fields: [matterId], references: [id])
+  lienHolder      Contact? @relation(fields: [lienHolderId], references: [id])
+
+  @@index([matterId])
+  @@map("liens")
+}
+
+// ============================================================
+// INTAKE FORMS
+// ============================================================
+
+model IntakeForm {
+  id              String   @id @default(cuid())
+  organizationId  String
+  name            String
+  practiceArea    String?
+  fields          Json
+  isActive        Boolean  @default(true)
+  publicUrl       String?  @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  submissions     IntakeSubmission[]
+
+  @@index([organizationId])
+  @@map("intake_forms")
+}
+
+model IntakeSubmission {
+  id              String   @id @default(cuid())
+  intakeFormId    String
+  data            Json
+  status          String   @default("new")
+  notes           String?
+  convertedToContactId String?
+  convertedToMatterId  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  intakeForm      IntakeForm @relation(fields: [intakeFormId], references: [id])
+
+  @@index([intakeFormId])
+  @@map("intake_submissions")
+}
+
+// ============================================================
+// NOTIFICATIONS & AUDIT
+// ============================================================
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      String
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id              String   @id @default(cuid())
+  organizationId  String
+  userId          String?
+  action          String
+  entityType      String
+  entityId        String?
+  details         Json?
+  ipAddress       String?
+  createdAt       DateTime @default(now())
+
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  user            User?        @relation(fields: [userId], references: [id])
+
+  @@index([organizationId])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+model AIAuditLog {
+  id              String   @id @default(cuid())
+  organizationId  String
+  userId          String
+  matterId        String?
+  feature         String
+  inputPreview    String?
+  outputPreview   String?
+  finalValue      String?
+  wasModified     Boolean  @default(false)
+  approved        Boolean  @default(false)
+  approvedById    String?
+  createdAt       DateTime @default(now())
+
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  user            User         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId])
+  @@map("ai_audit_logs")
+}
