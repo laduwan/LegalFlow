@@ -94,10 +94,10 @@ export default function HomePage() {
             Start Free Trial
           </Link>
           <Link
-            href="/login"
+            href="/login?demo=true"
             className="border border-slate-600 hover:border-slate-500 text-slate-300 hover:text-white px-8 py-3 rounded-lg font-medium transition-colors text-lg"
           >
-            Sign In
+            Try Demo
           </Link>
         </div>
       </section>

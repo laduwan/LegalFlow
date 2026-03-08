@@ -3,6 +3,16 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import prisma from "./prisma";
 
+const DEMO_USER = {
+  id: "demo-user-001",
+  email: "demo@legalflow.app",
+  firstName: "Elena",
+  lastName: "Garcia",
+  role: "ADMIN",
+  organizationId: "demo-org-001",
+  organizationName: "Garcia & Associates Immigration Law",
+};
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -14,6 +24,14 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
           throw new Error("Email and password required");
+        }
+
+        // Demo login — no database required
+        if (
+          credentials.email === "demo@legalflow.app" &&
+          credentials.password === "demo"
+        ) {
+          return DEMO_USER;
         }
 
         const user = await prisma.user.findUnique({

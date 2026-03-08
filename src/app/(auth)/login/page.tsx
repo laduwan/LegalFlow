@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -14,11 +14,42 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
   const registered = searchParams.get("registered");
+  const autoDemo = searchParams.get("demo") === "true";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isDemoLoading, setIsDemoLoading] = useState(false);
+
+  const handleDemoLogin = async () => {
+    setError("");
+    setIsDemoLoading(true);
+    try {
+      const result = await signIn("credentials", {
+        email: "demo@legalflow.app",
+        password: "demo",
+        redirect: false,
+      });
+      if (result?.error) {
+        setError("Demo login failed. Please try again.");
+      } else {
+        router.push(callbackUrl);
+        router.refresh();
+      }
+    } catch {
+      setError("An unexpected error occurred.");
+    } finally {
+      setIsDemoLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (autoDemo) {
+      handleDemoLogin();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoDemo]);
 
   const validateForm = (): boolean => {
     if (!email.trim()) {
@@ -134,6 +165,32 @@ function LoginForm() {
           )}
         </Button>
       </form>
+
+      <div className="relative">
+        <div className="absolute inset-0 flex items-center">
+          <span className="w-full border-t border-slate-700" />
+        </div>
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-slate-900 px-2 text-slate-500">or</span>
+        </div>
+      </div>
+
+      <Button
+        type="button"
+        variant="outline"
+        disabled={isDemoLoading || isLoading}
+        className="w-full border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white"
+        onClick={handleDemoLogin}
+      >
+        {isDemoLoading ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Loading demo...
+          </>
+        ) : (
+          "Try Demo — No account needed"
+        )}
+      </Button>
 
       <p className="text-center text-sm text-slate-400">
         Don&apos;t have an account?{" "}
